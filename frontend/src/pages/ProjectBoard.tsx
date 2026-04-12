@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { DndContext, useDraggable, useDroppable, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core';
+import type { DragEndEvent } from '@dnd-kit/core';
 import api from '../lib/api';
 import type { Project, Task } from '../types';
 import ThemeToggle from '../components/ThemeToggle';
@@ -104,16 +105,10 @@ function DroppableColumn({ id, colClass, label, children, count }: { id: string;
   );
 }
 
-function TaskCard({ task, projectId, onMove }: { task: Task; projectId: string; onMove: (id: string, st: Task['status']) => void }) {
-  const qc = useQueryClient();
+function TaskCard({ task, onMove }: { task: Task; onMove: (id: string, st: Task['status'] | 'delete') => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: task.id,
     data: { status: task.status }
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => api.delete(`/tasks/${task.id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks', projectId] }),
   });
 
   const nextStatus = PRIORITY_NEXT[task.status];
@@ -130,7 +125,7 @@ function TaskCard({ task, projectId, onMove }: { task: Task; projectId: string; 
       <div className="task-title">{task.title}</div>
       {task.description && <div className="task-desc">{task.description}</div>}
       <div className="task-footer">
-        <span className={`badge badge-${task.priority}`}>{task.priority}</span>
+        <span className={`badge badge-${task.priority}`} style={{ textTransform: 'capitalize' }}>{task.priority}</span>
         {task.due_date && (
           <span className="text-sm text-muted">
             📅 {new Date(task.due_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
@@ -150,7 +145,7 @@ function TaskCard({ task, projectId, onMove }: { task: Task; projectId: string; 
           className="btn btn-ghost btn-sm"
           style={{ marginLeft: 'auto', color: 'var(--danger)', padding: '0.2rem 0.4rem', cursor: 'pointer', pointerEvents: 'auto' }}
           onPointerDown={e => e.stopPropagation()}
-          onClick={(e) => { e.stopPropagation(); if (confirm('Delete this task?')) deleteMutation.mutate(); }}
+          onClick={(e) => { e.stopPropagation(); onMove(task.id, 'delete'); }}
           title="Delete task"
         >
           🗑
@@ -165,6 +160,7 @@ export default function ProjectBoard() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [showAddTask, setShowAddTask] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
 
   const { data: project } = useQuery({
     queryKey: ['project', id],
@@ -204,9 +200,19 @@ export default function ProjectBoard() {
     }
   };
 
-  const handleMoveStatus = (taskId: string, newStatus: Task['status']) => {
+  const handleMoveStatus = (taskId: string, newStatus: Task['status'] | 'delete') => {
+    if (newStatus === 'delete') {
+      const t = allTasks.find(x => x.id === taskId);
+      if (t) setTaskToDelete(t);
+      return;
+    }
     moveTaskMutation.mutate({ taskId, newStatus });
   };
+
+  const deleteMutation = useMutation({
+    mutationFn: (taskId: string) => api.delete(`/tasks/${taskId}`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['tasks', id] }); setTaskToDelete(null); },
+  });
 
   const allTasks = tasks ?? [];
 
@@ -226,7 +232,7 @@ export default function ProjectBoard() {
       <div className="main-content">
         <div className="board-header">
           <div>
-            <h2>{project?.name ?? 'Loading…'}</h2>
+            <h2>{project?.name || ''}</h2>
             {project?.description && (
               <p className="text-muted text-sm" style={{ marginTop: '.25rem' }}>{project.description}</p>
             )}
@@ -250,7 +256,7 @@ export default function ProjectBoard() {
                       </div>
                     ) : (
                       colTasks.map(task => (
-                        <TaskCard key={task.id} task={task} projectId={id!} onMove={handleMoveStatus} />
+                        <TaskCard key={task.id} task={task} onMove={handleMoveStatus} />
                       ))
                     )}
                   </DroppableColumn>
@@ -262,6 +268,29 @@ export default function ProjectBoard() {
       </div>
 
       {showAddTask && id && <AddTaskModal projectId={id} onClose={() => setShowAddTask(false)} />}
+      
+      {taskToDelete && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setTaskToDelete(null)}>
+          <div className="modal" style={{ maxWidth: '400px' }}>
+            <div className="modal-header">
+              <h3>Delete Task</h3>
+              <button className="btn btn-ghost btn-sm" onClick={() => setTaskToDelete(null)}>✕</button>
+            </div>
+            <p>Are you sure you want to delete the task <strong>"{taskToDelete.title}"</strong>?</p>
+            <p className="text-sm text-dim mt-1">This action cannot be undone.</p>
+            <div className="modal-footer mt-2">
+              <button className="btn btn-secondary" onClick={() => setTaskToDelete(null)}>Cancel</button>
+              <button 
+                className="btn btn-danger" 
+                onClick={() => deleteMutation.mutate(taskToDelete.id)}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

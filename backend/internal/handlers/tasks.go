@@ -96,20 +96,41 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		req.Priority = "medium"
 	}
 
+	var assigneeID *string
+	if req.AssigneeID != nil && *req.AssigneeID != "" {
+		val := *req.AssigneeID
+		var id string
+		err := h.db.QueryRow(c.Request.Context(), `SELECT id FROM users WHERE id::text = $1 OR name ILIKE $1 LIMIT 1`, val).Scan(&id)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "validation failed",
+				"fields": map[string]string{"assignee_id": "User not found by name or ID"},
+			})
+			return
+		}
+		assigneeID = &id
+	}
+
+	var dueDate *string
+	if req.DueDate != nil && *req.DueDate != "" {
+		val := *req.DueDate
+		dueDate = &val
+	}
+
 	var t models.Task
 	err := h.db.QueryRow(c.Request.Context(),
 		`INSERT INTO tasks (title, description, priority, project_id, assignee_id, due_date)
 		 VALUES ($1, $2, $3, $4, $5, $6::date)
 		 RETURNING id, title, description, status, priority, project_id,
 		           assignee_id, due_date::text, created_at, updated_at`,
-		req.Title, req.Description, req.Priority, projectID, req.AssigneeID, req.DueDate,
+		req.Title, req.Description, req.Priority, projectID, assigneeID, dueDate,
 	).Scan(
 		&t.ID, &t.Title, &t.Description, &t.Status, &t.Priority,
 		&t.ProjectID, &t.AssigneeID, &t.DueDate, &t.CreatedAt, &t.UpdatedAt,
 	)
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
