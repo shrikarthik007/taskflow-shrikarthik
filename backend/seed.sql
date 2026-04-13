@@ -6,7 +6,7 @@ INSERT INTO users (id, name, email, password) VALUES (
     'a0000000-0000-0000-0000-000000000001',
     'Test User',
     'test@example.com',
-    '$2a$12$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewdBdXIG/QjPCrAS'
+    '$2a$12$JbiG0kftQnMAdcvBurJUdeL.dMv3De.Ng74wz9p0kLBchHgndxkQm'
 ) ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO projects (id, name, description, owner_id) VALUES (
